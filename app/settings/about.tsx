@@ -6,10 +6,12 @@ import { useTheme } from '@/context/ThemeContext';
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
+import { useAuth } from '@/context/AuthContext';
 
 export default function AboutSettings() {
   const router = useRouter();
   const { isDark } = useTheme();
+  const { isGuest } = useAuth();
 
   const theme = {
     text: '#f0f0f0',
@@ -106,7 +108,7 @@ export default function AboutSettings() {
     }
   ];
 
-  const quickActions = [
+  let quickActions = [
     {
       title: 'Send Feedback',
       subtitle: 'Report bugs or suggest features',
@@ -128,6 +130,10 @@ export default function AboutSettings() {
       }
     }
   ];
+
+  if (isGuest) {
+    quickActions = [];
+  }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>

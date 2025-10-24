@@ -9,6 +9,7 @@ import { Crown } from 'lucide-react-native';
 export default function SettingsScreen() {
   const { isDark } = useTheme();
   const { signOut, user } = useAuth();
+  const { isGuest } = useAuth();
 
   const theme = {
     background: isDark ? '#0B0909' : '#003C24',
@@ -19,16 +20,22 @@ export default function SettingsScreen() {
     primary: '#f0f0f0',
   };
 
-  const settingsItems = [
-    { icon: User, title: 'Account', subtitle: 'Manage your account', action: 'profile' },
-    { icon: Crown, title: 'Subscription', subtitle: user?.isPro ? 'Manage your Pro subscription' : 'Upgrade to Pro', action: 'subscription' },
-    { icon: MessageSquare, title: 'Send Feedback', subtitle: 'Report bugs, suggest features', action: 'feedback' },
-    { icon: Bell, title: 'Notifications', subtitle: 'Push notifications and alerts', action: 'notifications' },
-    { icon: Share, title: 'Share Studio', subtitle: 'Create and share your ARMi cards', action: 'share' },
-    { icon: Palette, title: 'Appearance', subtitle: 'Theme and display options', action: 'appearance' },
-    { icon: Info, title: 'About', subtitle: 'App version and information', action: 'about' },
-    { icon: LogOut, title: 'Sign Out', subtitle: 'Sign out of your account', action: 'signout' },
-  ];
+  let settingsItems = [
+      { icon: User, title: 'Account', subtitle: 'Manage your account', action: 'profile' },
+      { icon: Crown, title: 'Subscription', subtitle: user?.isPro ? 'Manage your Pro subscription' : 'Upgrade to Pro', action: 'subscription' },
+      { icon: MessageSquare, title: 'Send Feedback', subtitle: 'Report bugs, suggest features', action: 'feedback' },
+      { icon: Bell, title: 'Notifications', subtitle: 'Push notifications and alerts', action: 'notifications' },
+      { icon: Share, title: 'Share Studio', subtitle: 'Create and share your ARMi cards', action: 'share' },
+      { icon: Palette, title: 'Appearance', subtitle: 'Theme and display options', action: 'appearance' },
+      { icon: Info, title: 'About', subtitle: 'App version and information', action: 'about' },
+      { icon: LogOut, title: 'Sign Out', subtitle: 'Sign out of your account', action: 'signout' },
+    ];
+  if (isGuest) {
+    settingsItems = [
+      { icon: Info, title: 'About', subtitle: 'App version and information', action: 'about' },
+      { icon: LogOut, title: 'Sign Out', subtitle: 'Sign out of your account', action: 'signout' },
+    ];
+  }
 
   const handleSignOut = async () => {
     try {
