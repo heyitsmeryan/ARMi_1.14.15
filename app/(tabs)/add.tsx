@@ -25,6 +25,8 @@ import { DatabaseService } from '@/services/DatabaseService';
 import { router } from 'expo-router';
 import { useTheme } from '@/context/ThemeContext';
 import { setProfileList } from '@/services/profileService';
+import { useAuth } from '@/context/AuthContext';
+
 
 export default function AddInteractionScreen() {
   const [inputText, setInputText] = useState('');
@@ -38,6 +40,8 @@ export default function AddInteractionScreen() {
   const { isDark } = useTheme();
   const [showSuggestions, setShowSuggestions] = useState(true);
   const suggestionsOpacity = useRef(new Animated.Value(1)).current;
+  const { isGuest } = useAuth();
+
 
   const theme = {
     text: '#f0f0f0',
@@ -556,28 +560,45 @@ export default function AddInteractionScreen() {
 
         <View style={[styles.inputContainer, { backgroundColor: theme.background, borderTopColor: theme.border }]}>
           <View style={[styles.inputRow, { backgroundColor: theme.inputBackground, borderColor: theme.border }]}>
-            <TouchableOpacity 
-              style={[styles.actionButton, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
-              onPress={handleAddPhoto}
+            <TouchableOpacity
+              style={[
+                styles.actionButton,
+                { backgroundColor: theme.cardBackground, borderColor: theme.border },
+                isGuest && styles.sendButtonDisabled
+              ]}
+              onPress={!isGuest ? handleAddPhoto : undefined}
+              disabled={isGuest}
             >
               <Plus size={20} color={theme.primary} />
             </TouchableOpacity>
 
+
             <TextInput
               ref={inputRef}
-              style={[styles.textInput, { color: theme.text }]}
+              style={[
+                styles.textInput,
+                { color: theme.text },
+                isGuest && { opacity: 0.6 } // visually disabled
+              ]}
               multiline
-              placeholder="Tell me what you want to do..."
+              placeholder={
+                isGuest
+                  ? "To use ARMi, please create an account"
+                  : "Tell me what you want to do..."
+              }
               placeholderTextColor={theme.primary}
-              value={inputText}
-              onChangeText={setInputText}
+              value={isGuest ? '' : inputText}
+              onChangeText={text => !isGuest && setInputText(text)}
               maxLength={1000}
               autoFocus
+              editable={!isGuest}
             />
 
+
             <TouchableOpacity 
-              style={[styles.actionButton, { backgroundColor: theme.accent }]}
-              onPress={handleVoiceInput}
+              style={[styles.actionButton, { backgroundColor: theme.accent }, isGuest && styles.sendButtonDisabled]}
+              onPress={!isGuest? handleVoiceInput : undefined}
+              disabled={isGuest}
             >
               <Mic size={20} color={isListening ? theme.secondary : theme.text} />
             </TouchableOpacity>
@@ -586,13 +607,19 @@ export default function AddInteractionScreen() {
           <TouchableOpacity
             style={[
               styles.sendButton,
-             { backgroundColor: inputText.trim() && !isProcessing ? theme.secondary : theme.secondary },
-              (!inputText.trim() || isProcessing) && styles.sendButtonDisabled
+              {
+                backgroundColor: isGuest
+                  ? theme.secondary
+                  : inputText.trim() && !isProcessing
+                    ? theme.secondary
+                    : theme.secondary,
+              },
+              (isGuest || !inputText.trim() || isProcessing) && styles.sendButtonDisabled
             ]}
-            onPress={handleSubmit}
-            disabled={!inputText.trim() || isProcessing}
+            onPress={!isGuest ? handleSubmit : undefined}
+            disabled={isGuest || !inputText.trim() || isProcessing}
           >
-           <Send size={20} color="#FFFFFF" />
+            <Send size={20} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>

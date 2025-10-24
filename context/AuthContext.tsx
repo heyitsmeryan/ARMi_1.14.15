@@ -2,6 +2,8 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { AuthService } from '@/services/AuthService';
 import { ArmiList } from '@/types/armi-intents';
 import * as Purchases from "react-native-purchases";
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 
 
 interface User {
@@ -20,6 +22,7 @@ interface AuthContextType {
   session: any;
   loading: boolean;
   isUserDataLoaded: boolean;
+  isGuest: boolean;
   signUp: (email: string, password: string) => Promise<any>;
   signIn: (email: string, password: string) => Promise<any>;
   sendEmailOtp: (email: string) => Promise<any>;
@@ -32,6 +35,7 @@ interface AuthContextType {
   checkProStatus: (forceRefresh?: boolean) => Promise<ProStatus>;
   deleteAccount: () => Promise<void>;
   restoreAccount: (userId: string) => Promise<void>;
+  continueAsGuest: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -45,10 +49,36 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [isUserDataLoaded, setIsUserDataLoaded] = useState(false);
+  const [isGuest, setIsGuest] = useState(false);
 
   useEffect(() => {
+  const setupAuth = async () => {
+    const guestFlag = await AsyncStorage.getItem('guestMode');
+    if (guestFlag === 'true') {
+      console.log('Restoring guest session');
+      setIsGuest(true);
+      setUser(null);
+      setSession(null);
+      setIsUserDataLoaded(true);
+      setLoading(false);
+      return; // 👈 Skip initializeAuth if guest
+    }
+
+    // Otherwise, initialize Supabase auth
     initializeAuth();
-  }, []);
+  };
+
+  setupAuth();
+}, []);
+
+  const continueAsGuest = async () => {
+    console.log('🧭 Continuing as guest');
+    setIsGuest(true);
+    setUser(null);
+    setSession(null);
+    setIsUserDataLoaded(true);
+    await AsyncStorage.setItem('guestMode', 'true');
+  };
 
   const initializeAuth = async () => {
     try {
@@ -384,6 +414,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const signOut = async () => {
     setLoading(true);
+
+    if (isGuest) {
+      await AsyncStorage.removeItem('guestMode');
+      setIsGuest(false);
+      setUser(null);
+      setSession(null);
+      setLoading(false);
+      return;
+    }
     try {
       // Clean up RevenueCat identity on sign out
       try {
@@ -505,6 +544,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       session,
       loading,
       isUserDataLoaded,
+      isGuest,
       signUp,
       signIn,
       sendEmailOtp,
@@ -517,6 +557,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       checkProStatus,
       deleteAccount,
       restoreAccount,
+      continueAsGuest,
     }}>
       {children}
     </AuthContext.Provider>

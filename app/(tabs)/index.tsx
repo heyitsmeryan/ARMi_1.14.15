@@ -10,10 +10,34 @@ import { ListSelectorModal } from '@/components/ListSelectorModal';
 import { router } from 'expo-router';
 import { useTheme } from '@/context/ThemeContext';
 
+type Profile = {
+  id: number;
+  name: string;
+  age: number;
+  phone: string;
+  email: string;
+  relationship: string;
+  job: string;
+  notes: string;
+  tags: string[];
+  photoUri: string | null;
+  kids: string[];
+  siblings: string[];
+  pets: string[];
+  foodLikes: string[];
+  foodDislikes: string[];
+  interests: string[];
+  birthday: string;
+  lastContactDate: string;
+  createdAt: string;
+  updatedAt: string;
+  listType: string;
+};
+
 import { useAuth } from '@/context/AuthContext';
 export default function RosterScreen() {
   const { user } = useAuth();
-  const [profiles, setProfiles] = useState([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
   const [filteredProfiles, setFilteredProfiles] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('all');
@@ -22,6 +46,7 @@ export default function RosterScreen() {
   const [showListSelector, setShowListSelector] = useState(false);
   const [loading, setLoading] = useState(true);
   const { isDark, currentListType, setCurrentListType } = useTheme();
+  const { isGuest } = useAuth();
 
   const theme = {
     text: '#f0f0f0',
@@ -51,6 +76,36 @@ export default function RosterScreen() {
   const loadProfiles = async () => {
     try {
       setLoading(true);
+      if (isGuest) {
+        const exampleProfiles = [
+          {
+            id: 1,
+            name: 'John Doe',
+            age: 30,
+            phone: '+1234567890',
+            email: 'john@example.com',
+            relationship: 'Friend',
+            job: 'Software Engineer',
+            notes: 'Met at conference last year',
+            tags: ['tech', 'colleague'],
+            photoUri: null,
+            kids: [],
+            siblings: ['Jane Doe'],
+            pets: ['Max (dog)'],
+            foodLikes: ['pizza', 'sushi'],
+            foodDislikes: ['mushrooms'],
+            interests: ['coding', 'hiking'],
+            birthday: '1994-05-15',
+            lastContactDate: '2024-01-15',
+            createdAt: '2024-01-01T00:00:00.000Z',
+            updatedAt: '2024-01-15T00:00:00.000Z',
+            listType: 'Network'
+          }
+        ];
+        setProfiles(exampleProfiles);
+        setLoading(false);
+        return;
+      }
       const data = await DatabaseService.getAllProfiles(currentListType);
       setProfiles(data);
     } catch (error) {
@@ -116,10 +171,26 @@ export default function RosterScreen() {
   };
 
   const handleProfileSelect = (profile) => {
+    if (isGuest) {
+      Alert.alert(
+        "Create an Account",
+        "To view or edit profile details, please create an account.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
     router.push(`/profile/${profile.id}`);
   };
 
   const handleProfileDelete = async (profileId: number) => {
+    if (isGuest) {
+      Alert.alert(
+        "Create an Account",
+        "Guests cannot delete profiles. Please create an account to manage your roster.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
     try {
       await DatabaseService.deleteProfile(profileId);
       await loadProfiles(); // Refresh the list
@@ -130,6 +201,14 @@ export default function RosterScreen() {
   };
 
   const handleAddPress = () => {
+    if (isGuest) {
+      Alert.alert(
+        "Create an Account",
+        "To create or edit profiles, please make an account.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
     // Check profile limit for free users
     if (!user?.isPro && profiles.length >= 5) {
       Alert.alert(

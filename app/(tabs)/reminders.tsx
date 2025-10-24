@@ -20,6 +20,21 @@ const REMINDER_TYPE_COLORS = {
   life_event: '#8B5CF6',
 };
 
+interface Reminder {
+  id: number;
+  profileId: number;
+  title: string;
+  description: string;
+  type: string;
+  scheduledFor: string;
+  completed: number;
+  completedAt: string | null;
+  notificationId: string | null;
+  createdAt: string;
+  profileName: string;
+  profilePhoto: string | null;
+}
+
 export default function RemindersScreen() {
   const { user } = useAuth();
   const [filterModalVisible, setFilterModalVisible] = useState(false);
@@ -27,10 +42,11 @@ export default function RemindersScreen() {
   const [editReminderModalVisible, setEditReminderModalVisible] = useState(false);
   const [selectedReminderForEdit, setSelectedReminderForEdit] = useState(null);
   const [selectedFilter, setSelectedFilter] = useState('all');
-  const [reminders, setReminders] = useState([]);
+  const [reminders, setReminders] = useState<Reminder[]>([]);
   const [loading, setLoading] = useState(true);
   const [monthlyReminderCount, setMonthlyReminderCount] = useState(0);
   const { isDark } = useTheme();
+  const { isGuest } = useAuth();
 
   const colors = {
     background: isDark ? '#0B0909' : '#003C24',
@@ -59,6 +75,27 @@ export default function RemindersScreen() {
   const loadReminders = async () => {
     try {
       setLoading(true);
+      if (isGuest) {
+        setReminders([
+          {
+            id: 1,
+            profileId: 1,
+            title: 'Follow up with John',
+            description: 'Check on his new project',
+            type: 'followup',
+            scheduledFor: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+            completed: 0,
+            completedAt: null,
+            notificationId: null,
+            createdAt: '2024-01-01T00:00:00.000Z',
+            profileName: 'John Doe',
+            profilePhoto: null,
+          }
+        ]);
+        setLoading(false);
+        return;
+      }
+
       const data = await DatabaseService.getAllReminders();
       setReminders(data);
     } catch (error) {
@@ -92,14 +129,38 @@ export default function RemindersScreen() {
   ];
 
   const handleReminderComplete = async (reminderId: number) => {
+    if (isGuest) {
+      Alert.alert(
+        "Create an Account",
+        "To complete reminders, please create an account.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
     await loadReminders(); // Refresh the list
   };
 
   const handleReminderSnooze = async (reminderId: number, newDate: string) => {
+    if (isGuest) {
+      Alert.alert(
+        "Create an Account",
+        "To snooze reminders, please create an account.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
     await loadReminders(); // Refresh the list
   };
 
   const handleReminderDelete = async (reminderId: number) => {
+    if (isGuest) {
+      Alert.alert(
+        "Create an Account",
+        "To delete reminders, please create an account.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
     try {
       // Get the reminder to cancel its notification
       const reminder = await DatabaseService.getReminderById(reminderId);
@@ -124,6 +185,14 @@ export default function RemindersScreen() {
   };
 
   const handleReminderEdit = (reminder: any) => {
+    if (isGuest) {
+      Alert.alert(
+        "Create an Account",
+        "To edit reminders, please create an account.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
     setSelectedReminderForEdit(reminder);
     setEditReminderModalVisible(true);
   };
@@ -153,6 +222,13 @@ export default function RemindersScreen() {
                     { text: 'Maybe Later', style: 'cancel' },
                     { text: 'Upgrade to Pro', onPress: () => router.push('/settings/subscription') }
                   ]
+                );
+                return;
+              } else if (isGuest) {
+                Alert.alert(
+                  "Create an Account",
+                  "To edit reminders, please create an account.",
+                  [{ text: "OK" }]
                 );
                 return;
               }

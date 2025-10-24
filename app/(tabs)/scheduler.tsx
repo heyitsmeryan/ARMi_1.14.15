@@ -6,7 +6,8 @@ import {
   SafeAreaView, 
   TouchableOpacity, 
   ScrollView,
-  FlatList
+  FlatList,
+  Alert
 } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { MessageSquareText, Plus } from 'lucide-react-native';
@@ -20,16 +21,31 @@ import { cancelById } from '@/services/Scheduler';
 import { useAuth } from '@/context/AuthContext';
 import { router } from 'expo-router';
 
+interface ScheduledText {
+  id: number;
+  profileId: number;
+  phoneNumber: string;
+  message: string;
+  scheduledFor: string; // ISO date string
+  sent: number; // 0 = not sent, 1 = sent
+  notificationId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  profileName: string;
+  profilePhoto: string | null;
+}
+
 export default function SchedulerScreen() {
   const { user } = useAuth();
   const { isDark } = useTheme();
   const params = useLocalSearchParams();
-  const [scheduledTexts, setScheduledTexts] = useState([]);
+  const [scheduledTexts, setScheduledTexts] = useState<ScheduledText[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedTextForEdit, setSelectedTextForEdit] = useState(null);
   const [loading, setLoading] = useState(true);
   const [monthlyTextCount, setMonthlyTextCount] = useState(0);
+  const { isGuest } = useAuth();
 
   const theme = {
     text: '#f0f0f0',
@@ -61,6 +77,14 @@ export default function SchedulerScreen() {
 
   // Handle deep link to edit specific scheduled text
   const handleDeepLinkEdit = async () => {
+    if (isGuest) {
+      Alert.alert(
+        "Create an Account",
+        "To edit a scheduled text, please create an account.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
     try {
       const textId = parseInt(params.textId as string);
       if (isNaN(textId)) return;
@@ -91,6 +115,25 @@ export default function SchedulerScreen() {
   const loadScheduledTexts = async () => {
     try {
       setLoading(true);
+      if (isGuest) {
+        setScheduledTexts([
+          {
+          id: 1,
+          profileId: 1,
+          phoneNumber: '+1234567890',
+          message: 'Hey! How are you doing?',
+          scheduledFor: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          sent: 0,
+          notificationId: null,
+          createdAt: '2024-01-01T00:00:00.000Z',
+          updatedAt: '2024-01-01T00:00:00.000Z',
+          profileName: 'John Doe',
+          profilePhoto: null
+        }
+        ]);
+        setLoading(false);
+        return;
+      }
       const data = await DatabaseService.getAllScheduledTexts();
       setScheduledTexts(data);
     } catch (error) {
@@ -102,6 +145,14 @@ export default function SchedulerScreen() {
 
   const handleAddScheduledText = () => {
     // Check monthly text limit for free users
+    if (isGuest) {
+          Alert.alert(
+            "Create an Account",
+            "To add a scheduled text, please create an account.",
+            [{ text: "OK" }]
+          );
+          return;
+        }
     if (!user?.isPro && monthlyTextCount >= 5) {
       Alert.alert(
         'Monthly Text Limit Reached',
@@ -123,6 +174,14 @@ export default function SchedulerScreen() {
   };
 
   const handleTextEdit = (scheduledText: any) => {
+    if (isGuest) {
+      Alert.alert(
+        "Create an Account",
+        "To edit a scheduled text, please create an account.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
     setSelectedTextForEdit(scheduledText);
     setShowEditModal(true);
   };
@@ -134,6 +193,14 @@ export default function SchedulerScreen() {
   };
 
   const handleTextDelete = async (textId: number) => {
+    if (isGuest) {
+          Alert.alert(
+            "Create an Account",
+            "To delete a scheduled text, please create an account.",
+            [{ text: "OK" }]
+          );
+          return;
+        }
     try {
       // Get the scheduled text to cancel its notification
       const scheduledText = scheduledTexts.find(text => text.id === textId);
@@ -152,6 +219,14 @@ export default function SchedulerScreen() {
   };
 
   const handleTextSnooze = async (textId: number) => {
+    if (isGuest) {
+          Alert.alert(
+            "Create an Account",
+            "To snooze a scheduled text, please create an account.",
+            [{ text: "OK" }]
+          );
+          return;
+        }
     try {
       // Get the scheduled text to cancel its notification
       const scheduledText = scheduledTexts.find(text => text.id === textId);
@@ -193,6 +268,14 @@ export default function SchedulerScreen() {
   };
 
   const handleMarkTextAsSent = async (textId: number) => {
+    if (isGuest) {
+      Alert.alert(
+        "Create an Account",
+        "To mark a scheduled text as sent, please create an account.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
     try {
       // Get the scheduled text to cancel its notification
       const scheduledText = scheduledTexts.find(text => text.id === textId);

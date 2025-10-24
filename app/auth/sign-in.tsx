@@ -12,19 +12,20 @@ import {
   ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Mail, Lock, LogIn, UserPlus, Eye, EyeOff } from 'lucide-react-native';
+import { Mail, Lock, LogIn, UserPlus, Eye, EyeOff, User } from 'lucide-react-native';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 
 export default function SignInScreen() {
   const router = useRouter();
-  const { signIn, signOut, restoreAccount, loading } = useAuth();
+  const { signIn, signOut, restoreAccount, loading, continueAsGuest } = useAuth();
   const { isDark } = useTheme();
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isGuestLoading, setIsGuestLoading] = useState(false);
 
   const theme = {
     text: '#f0f0f0',
@@ -86,6 +87,19 @@ export default function SignInScreen() {
       setIsLoading(false);
     }
   };
+
+  const handleContinueAsGuest = async () => {
+    try {
+      setIsGuestLoading(true);
+      await continueAsGuest();
+      router.replace('/(tabs)');
+    } catch (error) {
+      console.log('Guest mode error:', error);
+      Alert.alert('Error', 'Failed to continue as guest. Please try again.');
+    } finally {
+      setIsGuestLoading(false);
+    }
+  }
 
   const navigateToSignUp = () => {
     router.push('/auth/sign-up');
@@ -176,7 +190,9 @@ export default function SignInScreen() {
             <TouchableOpacity
               style={[
                 styles.signInButton,
-                { backgroundColor: isDark ? theme.secondary : '#f0f0f0' },
+                { backgroundColor: isDark ? theme.secondary : '#f0f0f0',
+                  marginBottom: 12,
+                 },
                 (isLoading || loading) && styles.buttonDisabled
               ]}
               onPress={handleSignIn}
@@ -185,6 +201,22 @@ export default function SignInScreen() {
               <LogIn size={20} color={isDark ? "#FFFFFF" : "#003C24"} />
               <Text style={[styles.signInButtonText, { color: isDark ? "#FFFFFF" : "#003C24" }]}>
                 {isLoading || loading ? 'Signing In...' : 'Sign In'}
+              </Text>
+            </TouchableOpacity>
+
+            {/* Continue as Guest */}
+            <TouchableOpacity
+              style={[
+                styles.guestButton,
+                { borderColor: isDark ? theme.secondary : '#f0f0f0' },
+                isGuestLoading && styles.buttonDisabled
+              ]}
+              onPress={handleContinueAsGuest}
+              disabled={isGuestLoading}
+            >
+              <User size={20} color={isDark ? "#FFFFFF" : "#003C24"} />
+              <Text style={[styles.guestButtonText, { color: isDark ? "#FFFFFF" : "#003C24" }]}>
+                {isGuestLoading ? 'Loading...' : 'Continue as Guest'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -292,6 +324,21 @@ const styles = StyleSheet.create({
   signInButtonText: {
     fontSize: 18,
     fontWeight: '700',
+  },
+  guestButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderRadius: 12,
+    gap: 8,
+    borderWidth: 1,
+    backgroundColor: 'transparent',
+  },
+
+  guestButtonText: {
+    fontSize: 18,
+    fontWeight: '600',
   },
   buttonDisabled: {
     opacity: 0.6,
