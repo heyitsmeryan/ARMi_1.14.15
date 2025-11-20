@@ -8,12 +8,13 @@ import {
   SafeAreaView,
   Alert,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, Crown, Check, Star, Zap, Users, Bell, MessageSquareText, Sparkles } from 'lucide-react-native';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
-import { AuthService } from '@/services/AuthService';
+import { AuthService, TERMS_OF_USE_URL, PRIVACY_POLICY_URL } from '@/services/AuthService';
 import Purchases, { PurchasesPackage } from 'react-native-purchases';
 
 export default function SubscriptionSettings() {
@@ -62,16 +63,44 @@ export default function SubscriptionSettings() {
       await Purchases.invalidateCustomerInfoCache();
       await Purchases.getCustomerInfo();
       
-      await AuthService.purchasePackage(packageToPurchase);
+      // Attempt purchase - this is the critical operation
+      const customerInfo = await AuthService.purchasePackage(packageToPurchase);
       
-      // Force refresh pro status and update user state
-      await checkProStatus(true);
+      // Verify purchase success by checking entitlements directly from customerInfo
+      const hasEntitlement = AuthService.hasActiveEntitlement(customerInfo);
       
-      Alert.alert(
-        'Welcome to Pro!',
-        'Your subscription is now active. Enjoy unlimited profiles, reminders, and access to all lists!',
-        [{ text: 'Awesome!', onPress: () => router.back() }]
-      );
+      if (hasEntitlement) {
+        // Purchase succeeded - show success immediately
+        Alert.alert(
+          'Welcome to Pro!',
+          'Your subscription is now active. Enjoy unlimited profiles, reminders, and access to all lists!',
+          [{ text: 'Awesome!', onPress: () => router.back() }]
+        );
+        
+        // Refresh pro status in background (best-effort, don't block or fail on errors)
+        try {
+          await checkProStatus(true);
+        } catch (statusError) {
+          // Log error but don't show to user - purchase already succeeded
+          console.error('Failed to refresh pro status after purchase (non-critical):', statusError);
+        }
+      } else {
+        // Purchase completed but no entitlement found - might be timing issue
+        // Still show success and let status refresh handle it
+        console.log('Purchase completed but entitlement not immediately available in customerInfo');
+        Alert.alert(
+          'Welcome to Pro!',
+          'Your subscription is now active. Enjoy unlimited profiles, reminders, and access to all lists!',
+          [{ text: 'Awesome!', onPress: () => router.back() }]
+        );
+        
+        // Try to refresh status
+        try {
+          await checkProStatus(true);
+        } catch (statusError) {
+          console.error('Failed to refresh pro status after purchase (non-critical):', statusError);
+        }
+      }
     } catch (error: any) {
       console.error('Purchase error:', error);
       
@@ -80,6 +109,7 @@ export default function SubscriptionSettings() {
         return;
       }
       
+      // Only show error if purchase itself failed (not status refresh)
       Alert.alert('Purchase Failed', error.message || 'Failed to complete purchase. Please try again.');
     } finally {
       setPurchasing(false);
@@ -94,12 +124,30 @@ export default function SubscriptionSettings() {
       await Purchases.invalidateCustomerInfoCache();
       await Purchases.getCustomerInfo();
       
-      await AuthService.restorePurchases();
+      // Attempt restore - this is the critical operation
+      const customerInfo = await AuthService.restorePurchases();
       
-      // Force refresh pro status and update user state
-      await checkProStatus(true);
+      // Verify restore success by checking entitlements directly from customerInfo
+      const hasEntitlement = AuthService.hasActiveEntitlement(customerInfo);
       
-      Alert.alert('Purchases Restored', 'Your previous purchases have been restored successfully.');
+      if (hasEntitlement) {
+        // Restore succeeded - show success immediately
+        Alert.alert('Purchases Restored', 'Your previous purchases have been restored successfully.');
+        
+        // Refresh pro status in background (best-effort, don't block or fail on errors)
+        try {
+          await checkProStatus(true);
+        } catch (statusError) {
+          // Log error but don't show to user - restore already succeeded
+          console.error('Failed to refresh pro status after restore (non-critical):', statusError);
+        }
+      } else {
+        // No active entitlements found - inform user
+        Alert.alert(
+          'No Purchases Found',
+          'We couldn\'t find any active subscriptions to restore. Make sure you\'re signed in with the same Apple ID you used to purchase.'
+        );
+      }
     } catch (error) {
       console.error('Restore error:', error);
       Alert.alert('Restore Failed', 'Failed to restore purchases. Please try again.');
@@ -116,6 +164,19 @@ export default function SubscriptionSettings() {
     const identifier = pkg.identifier.toLowerCase();
     const packageIndex = offerings.findIndex(p => p.identifier === pkg.identifier);
     return packageIndex === 1 ? 'year' : 'month';
+  };
+
+  const handleLinkPress = async (url: string, title: string) => {
+    try {
+      const supported = await Linking.canOpenURL(url);
+      if (supported) {
+        await Linking.openURL(url);
+      } else {
+        Alert.alert('Error', `Cannot open ${title}`);
+      }
+    } catch (error) {
+      Alert.alert('Error', `Failed to open ${title}`);
+    }
   };
 
   const proFeatures = [
@@ -249,6 +310,21 @@ export default function SubscriptionSettings() {
                 })}
               </View>
             )}
+          </View>
+        )}
+
+        {/* Terms of Use and Privacy Policy Links */}
+        {!user?.isPro && (
+          <View style={styles.legalLinksSection}>
+            <View style={styles.legalLinksContainer}>
+              <TouchableOpacity onPress={() => handleLinkPress(TERMS_OF_USE_URL, 'Terms of Use')}>
+                <Text style={[styles.legalLink, { color: theme.primary }]}>Terms of Use</Text>
+              </TouchableOpacity>
+              <Text style={[styles.legalLinkSeparator, { color: theme.primary }]}> | </Text>
+              <TouchableOpacity onPress={() => handleLinkPress(PRIVACY_POLICY_URL, 'Privacy Policy')}>
+                <Text style={[styles.legalLink, { color: theme.primary }]}>Privacy Policy</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
 
@@ -513,6 +589,23 @@ const styles = StyleSheet.create({
   restoreHelpText: {
     fontSize: 14,
     textAlign: 'center',
+  },
+  legalLinksSection: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  legalLinksContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  legalLink: {
+    fontSize: 12,
+    textDecorationLine: 'underline',
+  },
+  legalLinkSeparator: {
+    fontSize: 12,
+    marginHorizontal: 4,
   },
   limitsCard: {
     borderRadius: 16,

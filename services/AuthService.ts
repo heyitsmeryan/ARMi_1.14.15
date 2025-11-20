@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Purchases, { CustomerInfo, PurchasesOffering } from 'react-native-purchases';
+import Purchases, { CustomerInfo, PurchasesPackage, PurchasesOffering } from 'react-native-purchases';
 import { Platform } from 'react-native';
 import { ArmiList } from '@/types/armi-intents';
 
@@ -9,6 +9,10 @@ const REVENUECAT_IOS_PUBLIC_KEY = 'appl_hojAymPIuDWMsoZMLmFuRwkgakC';
 const REVENUECAT_ANDROID_PUBLIC_KEY = 'goog_YOUR_ANDROID_KEY_HERE'; // Replace with actual Android key
 const ENTITLEMENT_ID = 'ARMi Pro';
 const OFFERING_ID = 'default';
+
+// Legal URLs
+export const TERMS_OF_USE_URL = 'https://armi.app/terms';
+export const PRIVACY_POLICY_URL = 'https://armi.app/privcy-policy';
 
 interface ProStatus {
   isPro: boolean;
@@ -403,33 +407,21 @@ class AuthServiceClass {
           await Purchases.invalidateCustomerInfoCache();
           const customerInfo = await Purchases.getCustomerInfo();
             
-            
-            // Log detailed entitlement info for debugging
-            console.log('RevenueCat Customer Info:', {
-              originalAppUserId: customerInfo.originalAppUserId,
-              activeEntitlements: Object.keys(customerInfo.entitlements.active),
-              allEntitlements: Object.keys(customerInfo.entitlements.all),
-              entitlementId: ENTITLEMENT_ID,
-            });
-            
-            // Check for entitlement with multiple possible IDs
-            const possibleEntitlementIds = [
-              ENTITLEMENT_ID, // 'ARMi Pro'
-              'ARMi_Pro',
-              'armi_pro',
-              'pro',
-              'Pro',
-            ];
-            
-            hasRevenueCatEntitlement = possibleEntitlementIds.some(id => 
-              customerInfo.entitlements.active[id] !== undefined
-            );
-            
-            console.log('RevenueCat entitlement check result:', {
-              hasRevenueCatEntitlement,
-              checkedIds: possibleEntitlementIds,
-              foundActiveEntitlements: Object.keys(customerInfo.entitlements.active),
-            });
+          // Log detailed entitlement info for debugging
+          console.log('RevenueCat Customer Info:', {
+            originalAppUserId: customerInfo.originalAppUserId,
+            activeEntitlements: Object.keys(customerInfo.entitlements.active),
+            allEntitlements: Object.keys(customerInfo.entitlements.all),
+            entitlementId: ENTITLEMENT_ID,
+          });
+          
+          // Use helper method to check entitlement
+          hasRevenueCatEntitlement = this.hasActiveEntitlement(customerInfo);
+          
+          console.log('RevenueCat entitlement check result:', {
+            hasRevenueCatEntitlement,
+            foundActiveEntitlements: Object.keys(customerInfo.entitlements.active),
+          });
         } catch (revenueCatError) {
           console.error('Failed to check RevenueCat entitlement:', revenueCatError);
         }
@@ -517,7 +509,22 @@ class AuthServiceClass {
     }
   }
 
-  async getOfferings(): Promise<PurchasesOffering[]> {
+  hasActiveEntitlement(customerInfo: CustomerInfo): boolean {
+    // Check for entitlement with multiple possible IDs (same logic as checkProStatus)
+    const possibleEntitlementIds = [
+      ENTITLEMENT_ID, // 'ARMi Pro'
+      'ARMi_Pro',
+      'armi_pro',
+      'pro',
+      'Pro',
+    ];
+    
+    return possibleEntitlementIds.some(id => 
+      customerInfo.entitlements.active[id] !== undefined
+    );
+  }
+
+  async getOfferings(): Promise<PurchasesPackage[]> {
     await this.ensureInitialized();
     
     if (!this.revenueCatInitialized) {

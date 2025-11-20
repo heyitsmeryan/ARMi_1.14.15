@@ -7,6 +7,16 @@ import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import { useAuth } from '@/context/AuthContext';
+import { TERMS_OF_USE_URL, PRIVACY_POLICY_URL } from '@/services/AuthService';
+
+interface AboutItem {
+  label: string;
+  value: string;
+  icon: any;
+  multiline?: boolean;
+  isLink?: boolean;
+  linkUrl?: string;
+}
 
 export default function AboutSettings() {
   const router = useRouter();
@@ -100,9 +110,19 @@ export default function AboutSettings() {
         },
         { 
           label: 'Privacy Policy', 
-          value: 'We value your trust and are committed to handling your information responsibly. Your data may be used to improve our services or offer personalized features. These terms may be updated from time to time.',
-          multiline: true,
-          icon: FileText 
+          value: 'View our Privacy Policy',
+          multiline: false,
+          icon: FileText,
+          isLink: true,
+          linkUrl: PRIVACY_POLICY_URL
+        },
+        { 
+          label: 'Terms of Use', 
+          value: 'View our Terms of Use',
+          multiline: false,
+          icon: FileText,
+          isLink: true,
+          linkUrl: TERMS_OF_USE_URL
         },
       ]
     }
@@ -194,15 +214,17 @@ export default function AboutSettings() {
               {section.title}
             </Text>
             
-            {section.items.map((item, itemIndex) => {
+            {section.items.map((item: AboutItem, itemIndex) => {
               const IconComponent = item.icon;
-              return (
+              const isClickable = item.isLink && item.linkUrl;
+              
+              const content = (
                 <View 
-                  key={itemIndex} 
                   style={[
                     styles.infoItem,
                     { borderBottomColor: theme.border },
-                    itemIndex === section.items.length - 1 && { borderBottomWidth: 0 }
+                    itemIndex === section.items.length - 1 && { borderBottomWidth: 0 },
+                    isClickable && styles.infoItemClickable
                   ]}
                 >
                   <View style={styles.infoItemLeft}>
@@ -211,17 +233,35 @@ export default function AboutSettings() {
                       <Text style={[styles.infoLabel, { color: theme.primary }]}>
                         {item.label}
                       </Text>
-                      <Text style={[
-                        styles.infoValue,
-                        { color: theme.text },
-                        item.multiline && styles.infoValueMultiline
-                      ]}>
-                        {item.value}
-                      </Text>
+                      <View style={styles.infoValueContainer}>
+                        <Text style={[
+                          styles.infoValue,
+                          { color: isClickable ? theme.primary : theme.text },
+                          item.multiline && styles.infoValueMultiline,
+                          isClickable && styles.infoValueLink
+                        ]}>
+                          {item.value}
+                        </Text>
+                        {isClickable && <ExternalLink size={14} color={theme.primary} style={styles.externalLinkIcon} />}
+                      </View>
                     </View>
                   </View>
                 </View>
               );
+              
+              if (isClickable && item.linkUrl) {
+                return (
+                  <TouchableOpacity
+                    key={itemIndex}
+                    onPress={() => handleLinkPress(item.linkUrl!, item.label)}
+                    activeOpacity={0.7}
+                  >
+                    {content}
+                  </TouchableOpacity>
+                );
+              }
+              
+              return <View key={itemIndex}>{content}</View>;
             })}
           </View>
         ))}
@@ -397,6 +437,20 @@ const styles = StyleSheet.create({
   },
   infoValueMultiline: {
     lineHeight: 24,
+  },
+  infoItemClickable: {
+    opacity: 1,
+  },
+  infoValueContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  infoValueLink: {
+    textDecorationLine: 'underline',
+    marginRight: 4,
+  },
+  externalLinkIcon: {
+    marginLeft: 4,
   },
   statusContainer: {
     borderRadius: 12,
