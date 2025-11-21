@@ -82,7 +82,23 @@ export default function SignInScreen() {
       // Small delay to ensure session is properly loaded, then navigate
     } catch (error) {
       console.error('Sign in error:', error);
-      Alert.alert('Sign In Failed', error.message || 'Invalid email or password. Please try again.');
+      // FIX: Email verification bypass prevention - redirect unverified users to verification page
+      if (error.message === 'EMAIL_NOT_VERIFIED') {
+        Alert.alert(
+          'Email Not Verified',
+          'Please verify your email address before signing in. We\'ve sent you a verification code.',
+          [
+            { 
+              text: 'OK', 
+              onPress: () => {
+                router.replace('/auth/verify-email');
+              }
+            }
+          ]
+        );
+      } else {
+        Alert.alert('Sign In Failed', error.message || 'Invalid email or password. Please try again.');
+      }
     } finally {
       setIsLoading(false);
     }

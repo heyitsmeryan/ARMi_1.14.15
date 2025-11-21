@@ -47,8 +47,9 @@ export function InitialListSelectionModal({ visible, onClose, theme }: InitialLi
     try {
       await updateSelectedListType(listType);
       
-      // Mark initial setup as completed
-      await AsyncStorage.setItem('has_made_initial_list_selection', 'true');
+      // FIX: List picker bypass prevention - removed AsyncStorage flag, now using database
+      // No need to store in AsyncStorage - the database now tracks this via user profile
+      // The list selection is stored in the user_profiles table in Supabase
       
       Alert.alert(
         'List Selected!',

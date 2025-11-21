@@ -135,6 +135,12 @@ class AuthServiceClass {
       throw new Error(error.message);
     }
 
+    // FIX: Email verification bypass prevention - block unverified users from accessing app
+    // But we keep the session so they can verify their email
+    if (data.user && !data.user.email_confirmed_at) {
+      throw new Error('EMAIL_NOT_VERIFIED');
+    }
+
     // Set RevenueCat user ID after successful sign in
     if (data.user?.id) {
       await this.setRevenueCatUserId(data.user.id);

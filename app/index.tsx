@@ -61,24 +61,24 @@ export default function Index() {
       setIsInitialModalCheckLoading(true);
       console.log('🔍 DEBUG: Index - Determining which modals to show with complete user data...');
       
-      // Check AsyncStorage flags
-      const hasMadeInitialListSelection = await AsyncStorage.getItem('has_made_initial_list_selection');
+      // FIX: List picker bypass prevention - removed AsyncStorage check for list selection
+      // Check AsyncStorage flags (only for dev note, not list selection)
       const dontShowDevNote = await AsyncStorage.getItem('do_not_show_dev_note_again');
       
       console.log('🔍 DEBUG: Index - AsyncStorage values:', {
-        hasMadeInitialListSelection,
         dontShowDevNote
       });
       
-      console.log('🔍 DEBUG: AsyncStorage flags:', {
-        hasMadeInitialListSelection,
+      console.log('🔍 DEBUG: User flags:', {
         dontShowDevNote,
         userIsPro: user?.isPro,
-        userSelectedListType: user?.selectedListType
+        userSelectedListType: user?.selectedListType,
+        emailConfirmed: !!user?.email_confirmed_at
       });
       
-      // Determine if list selection modal should show
-      // Show for free users who haven't selected a list AND haven't made initial selection
+      // FIX: List picker bypass prevention - check database instead of AsyncStorage
+      // Show for free users who haven't selected a list (check database, not AsyncStorage)
+      // This ensures new users must go through list picker on first login
       const shouldShowListSelection = !user?.isPro &&
                                      !user?.selectedListType &&
                                      user?.email_confirmed_at; // Only show if email is confirmed
@@ -92,7 +92,6 @@ export default function Index() {
         shouldShowDevNote,
         userIsPro: user?.isPro,
         userSelectedListType: user?.selectedListType,
-        hasMadeInitialListSelection,
         dontShowDevNote,
         emailConfirmed: !!user?.email_confirmed_at
       });
@@ -189,8 +188,9 @@ export default function Index() {
     return <Redirect href="/auth/sign-in" />;
   }
 
+  // FIX: Email verification bypass prevention - redirect unverified users
   // Handle unverified users
-  console.log('🔍 DEBUG: Index routing check - user.email_confirmed_at:', user.email_confirmed_at);
+  console.log('🔍 DEBUG: Index routing check - user.email_confirmed_at:', user?.email_confirmed_at);
   if (user && !user.email_confirmed_at) { // Only redirect if user exists but is unconfirmed
     console.log('🔍 DEBUG: User email not confirmed, redirecting to verify-email');
     console.log('🔍 DEBUG: Index - Redirecting to verify-email (user exists but unconfirmed)');

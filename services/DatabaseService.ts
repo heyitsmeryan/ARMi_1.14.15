@@ -74,14 +74,27 @@ class DatabaseServiceClass {
     }
   }
 
+  // FIX: Data isolation - helper method to get current user ID for filtering
+  private async getCurrentUserId(): Promise<string | null> {
+    try {
+      const session = await AuthService.getSession();
+      return session?.user?.id || null;
+    } catch (error) {
+      console.error('Error getting current user ID:', error);
+      return null;
+    }
+  }
+
   private async createTables() {
     if (!this.db) return;
 
     try {
-      // Profiles table
+      // FIX: Data isolation - added user_id column to profiles table
+      // Profiles table - now includes user_id for data isolation
       await this.db.execAsync(`
         CREATE TABLE IF NOT EXISTS profiles (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id TEXT NOT NULL,
           name TEXT NOT NULL,
           age INTEGER,
           phone TEXT,
@@ -111,15 +124,18 @@ class DatabaseServiceClass {
           giftReminderEnabled INTEGER DEFAULT 0,
           giftReminderId INTEGER,
           lastContactDate TEXT,
+          listType TEXT,
           createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
           updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
         );
       `);
 
-      // Interactions table
+      // FIX: Data isolation - added user_id column to interactions table
+      // Interactions table - now includes user_id for data isolation
       await this.db.execAsync(`
         CREATE TABLE IF NOT EXISTS interactions (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id TEXT NOT NULL,
           profileId INTEGER,
           description TEXT NOT NULL,
           extractedData TEXT,
@@ -130,10 +146,12 @@ class DatabaseServiceClass {
         );
       `);
 
-      // Reminders table
+      // FIX: Data isolation - added user_id column to reminders table
+      // Reminders table - now includes user_id for data isolation
       await this.db.execAsync(`
         CREATE TABLE IF NOT EXISTS reminders (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id TEXT NOT NULL,
           profileId INTEGER,
           title TEXT NOT NULL,
           description TEXT,
@@ -147,10 +165,12 @@ class DatabaseServiceClass {
         );
       `);
 
-      // Life events table
+      // FIX: Data isolation - added user_id column to life_events table
+      // Life events table - now includes user_id for data isolation
       await this.db.execAsync(`
         CREATE TABLE IF NOT EXISTS life_events (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id TEXT NOT NULL,
           profileId INTEGER,
           eventType TEXT NOT NULL,
           description TEXT,
@@ -161,10 +181,12 @@ class DatabaseServiceClass {
         );
       `);
 
-      // Feedback table
+      // FIX: Data isolation - added user_id column to feedback table
+      // Feedback table - now includes user_id for data isolation
       await this.db.execAsync(`
         CREATE TABLE IF NOT EXISTS feedback (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id TEXT,
           type TEXT NOT NULL,
           subject TEXT NOT NULL,
           message TEXT NOT NULL,
@@ -176,10 +198,12 @@ class DatabaseServiceClass {
         );
       `);
 
-      // Scheduled texts table
+      // FIX: Data isolation - added user_id column to scheduled_texts table
+      // Scheduled texts table - now includes user_id for data isolation
       await this.db!.execAsync(`
         CREATE TABLE IF NOT EXISTS scheduled_texts (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id TEXT NOT NULL,
           profileId INTEGER,
           phoneNumber TEXT NOT NULL,
           message TEXT NOT NULL,
@@ -224,6 +248,7 @@ class DatabaseServiceClass {
         { name: 'giftReminderEnabled', definition: 'INTEGER DEFAULT 0' },
         { name: 'giftReminderId', definition: 'INTEGER' },
         { name: 'listType', definition: 'TEXT' },
+        { name: 'user_id', definition: 'TEXT' }, // FIX: Data isolation - migration adds user_id column
       ];
       
       // Add missing columns individually with error handling
@@ -241,6 +266,25 @@ class DatabaseServiceClass {
           console.log(`DB Migration: Column ${column.name} already exists`);
         }
       }
+
+      // FIX: Data isolation - migrate user_id to other tables
+      // Migrate user_id to other tables
+      const tablesToMigrate = ['interactions', 'reminders', 'life_events', 'scheduled_texts', 'feedback'];
+      for (const tableName of tablesToMigrate) {
+        try {
+          const tableInfo = await this.db.getAllAsync(`PRAGMA table_info(${tableName})`);
+          const tableColumns = new Set(tableInfo.map((col: any) => col.name));
+          if (!tableColumns.has('user_id')) {
+            console.log(`DB Migration: Adding user_id column to ${tableName}`);
+            await this.db.execAsync(`ALTER TABLE ${tableName} ADD COLUMN user_id TEXT`);
+            console.log(`DB Migration: Successfully added user_id column to ${tableName}`);
+          } else {
+            console.log(`DB Migration: user_id column already exists in ${tableName}`);
+          }
+        } catch (error) {
+          console.error(`DB Migration: Failed to add user_id to ${tableName}:`, error);
+        }
+      }
     } catch (error) {
       // If profiles table doesn't exist yet, that's fine - it will be created
       console.log('DB Migration: Skipped - profiles table does not exist yet');
@@ -249,6 +293,13 @@ class DatabaseServiceClass {
 
   async getAllProfiles(selectedListType?: "All" | "Roster" | "Network" | "People") {
     await this.ensureReady();
+    
+    // FIX: Data isolation - filter by user_id
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      console.warn('No user ID available - returning empty profiles list');
+      return [];
+    }
     
     if (this.isWebFallback) {
       return [
@@ -301,11 +352,12 @@ class DatabaseServiceClass {
       ];
     }
     
-    let query = 'SELECT * FROM profiles';
-    let params: any[] = [];
+    // FIX: Data isolation - filter by user_id
+    let query = 'SELECT * FROM profiles WHERE user_id = ?';
+    let params: any[] = [userId];
     
     if (selectedListType && selectedListType !== 'All') {
-      query += ' WHERE listType = ?';
+      query += ' AND listType = ?';
       params.push(selectedListType);
     }
     
@@ -330,16 +382,27 @@ class DatabaseServiceClass {
   async getProfileCount(): Promise<number> {
     await this.ensureReady();
     
+    // FIX: Data isolation - filter by user_id
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      return 0;
+    }
+    
     if (this.isWebFallback) {
       return 2; // Mock count
     }
     
-    const result = await this.db!.getFirstAsync('SELECT COUNT(*) as count FROM profiles');
+    const result = await this.db!.getFirstAsync('SELECT COUNT(*) as count FROM profiles WHERE user_id = ?', [userId]);
     return result?.count || 0;
   }
 
   async getMonthlyReminderCount(): Promise<number> {
     await this.ensureReady();
+    
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      return 0;
+    }
     
     if (this.isWebFallback) {
       return 1; // Mock count
@@ -350,8 +413,8 @@ class DatabaseServiceClass {
     startOfMonth.setHours(0, 0, 0, 0);
     
     const result = await this.db!.getFirstAsync(
-      'SELECT COUNT(*) as count FROM reminders WHERE createdAt >= ?',
-      [startOfMonth.toISOString()]
+      'SELECT COUNT(*) as count FROM reminders WHERE user_id = ? AND createdAt >= ?',
+      [userId, startOfMonth.toISOString()]
     );
     return result?.count || 0;
   }
@@ -359,6 +422,11 @@ class DatabaseServiceClass {
   async getMonthlyScheduledTextCount(): Promise<number> {
     await this.ensureReady();
     
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      return 0;
+    }
+    
     if (this.isWebFallback) {
       return 1; // Mock count
     }
@@ -368,8 +436,8 @@ class DatabaseServiceClass {
     startOfMonth.setHours(0, 0, 0, 0);
     
     const result = await this.db!.getFirstAsync(
-      'SELECT COUNT(*) as count FROM scheduled_texts WHERE createdAt >= ?',
-      [startOfMonth.toISOString()]
+      'SELECT COUNT(*) as count FROM scheduled_texts WHERE user_id = ? AND createdAt >= ?',
+      [userId, startOfMonth.toISOString()]
     );
     return result?.count || 0;
   }
@@ -377,12 +445,18 @@ class DatabaseServiceClass {
   async getProfileById(id: number) {
     await this.ensureReady();
     
+    // FIX: Data isolation - filter by user_id
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      return null;
+    }
+    
     if (this.isWebFallback) {
       const mockProfiles = await this.getAllProfiles();
       return mockProfiles.find(profile => profile.id === id) || null;
     }
     
-    const result = await this.db!.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [id]);
+    const result = await this.db!.getFirstAsync('SELECT * FROM profiles WHERE id = ? AND user_id = ?', [id, userId]);
     if (!result) return null;
     
     return {
@@ -475,6 +549,12 @@ class DatabaseServiceClass {
   async createOrUpdateProfile(profileData: any) {
     await this.ensureReady();
     
+    // FIX: Data isolation - require user_id for all profile operations
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      throw new Error('No authenticated user - cannot create or update profile');
+    }
+    
     if (this.isWebFallback) {
       console.log('Web fallback: Profile operation simulated');
       const mockId = profileData.id || Math.floor(Math.random() * 1000) + 3;
@@ -520,20 +600,21 @@ class DatabaseServiceClass {
     const now = new Date().toISOString();
     
     if (id) {
-      // Update existing profile
+      // FIX: Data isolation - ensure profile belongs to current user
+      // Update existing profile - ensure it belongs to current user
       await this.db!.runAsync(`
         UPDATE profiles SET
           name = ?, age = ?, phone = ?, email = ?, relationship = ?,
           job = ?, notes = ?, tags = ?, photoUri = ?, parents = ?, kids = ?, brothers = ?, sisters = ?, siblings = ?, pets = ?, foodLikes = ?, foodDislikes = ?,
           interests = ?, instagram = ?, snapchat = ?, twitter = ?, tiktok = ?, facebook = ?, birthday = ?, lastContactDate = ?, 
           birthdayTextEnabled = ?, birthdayTextScheduledTextId = ?, giftReminderEnabled = ?, giftReminderId = ?, listType = ?, updatedAt = ?
-        WHERE id = ?
+        WHERE id = ? AND user_id = ?
       `, [
         name, age, phone, email, relationship, job, notes,
         JSON.stringify(tags), photoUri, JSON.stringify(parents), JSON.stringify(kids), JSON.stringify(brothers), JSON.stringify(sisters), JSON.stringify(siblings), JSON.stringify(pets),
         JSON.stringify(foodLikes), JSON.stringify(foodDislikes),
         JSON.stringify(interests), instagram, snapchat, twitter, tiktok, facebook, birthday, lastContactDate,
-        birthdayTextEnabled ? 1 : 0, birthdayTextScheduledTextId, giftReminderEnabled ? 1 : 0, giftReminderId, listType, now, id
+        birthdayTextEnabled ? 1 : 0, birthdayTextScheduledTextId, giftReminderEnabled ? 1 : 0, giftReminderId, listType, now, id, userId
       ]);
       
       // Log profile data for developer collection
@@ -541,15 +622,16 @@ class DatabaseServiceClass {
       await this.logProfileDataForCollection(profileData, 'update', id);
       return id;
     } else {
-      // Create new profile
+      // FIX: Data isolation - include user_id when creating new profile
+      // Create new profile - include user_id
       const result = await this.db!.runAsync(`
         INSERT INTO profiles (
-          name, age, phone, email, relationship, job, notes, tags, photoUri, parents, kids, brothers, sisters, siblings, pets, foodLikes, foodDislikes,
+          user_id, name, age, phone, email, relationship, job, notes, tags, photoUri, parents, kids, brothers, sisters, siblings, pets, foodLikes, foodDislikes,
           interests, instagram, snapchat, twitter, tiktok, facebook, birthday, lastContactDate,
           birthdayTextEnabled, birthdayTextScheduledTextId, giftReminderEnabled, giftReminderId, listType, createdAt, updatedAt
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
-        name, age, phone, email, relationship, job, notes,
+        userId, name, age, phone, email, relationship, job, notes,
         JSON.stringify(tags), photoUri, JSON.stringify(parents), JSON.stringify(kids), JSON.stringify(brothers), JSON.stringify(sisters), JSON.stringify(siblings), JSON.stringify(pets),
         JSON.stringify(foodLikes), JSON.stringify(foodDislikes),
         JSON.stringify(interests), instagram, snapchat, twitter, tiktok, facebook, birthday, lastContactDate,
@@ -569,6 +651,12 @@ class DatabaseServiceClass {
   async addInteraction(interactionData: any) {
     await this.ensureReady();
     
+    // FIX: Data isolation - require user_id for interactions
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      throw new Error('No authenticated user - cannot add interaction');
+    }
+    
     if (this.isWebFallback) {
       console.log('Web fallback: Interaction operation simulated');
       return Math.floor(Math.random() * 1000) + 1;
@@ -578,15 +666,21 @@ class DatabaseServiceClass {
     const now = new Date().toISOString();
     
     const result = await this.db!.runAsync(`
-      INSERT INTO interactions (profileId, description, extractedData, type, location, createdAt)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `, [profileId, description, extractedData, type, location, now]);
+      INSERT INTO interactions (user_id, profileId, description, extractedData, type, location, createdAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, [userId, profileId, description, extractedData, type, location, now]);
     
     return result.lastInsertRowId;
   }
 
   async getAllReminders() {
     await this.ensureReady();
+    
+    // FIX: Data isolation - filter reminders by user_id
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      return [];
+    }
     
     if (this.isWebFallback) {
       return [
@@ -621,18 +715,26 @@ class DatabaseServiceClass {
       ];
     }
     
+    // FIX: Data isolation - filter by user_id
     const result = await this.db!.getAllAsync(`
       SELECT r.*, p.name as profileName, p.photoUri as profilePhoto
       FROM reminders r
       LEFT JOIN profiles p ON r.profileId = p.id
+      WHERE r.user_id = ? AND p.user_id = ?
       ORDER BY r.scheduledFor ASC
-    `);
+    `, [userId, userId]);
     
     return result;
   }
 
   async createReminder(reminderData: any) {
     await this.ensureReady();
+    
+    // FIX: Data isolation - require user_id for reminders
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      throw new Error('No authenticated user - cannot create reminder');
+    }
     
     if (this.isWebFallback) {
       console.log('Web fallback: Reminder operation simulated');
@@ -645,15 +747,20 @@ class DatabaseServiceClass {
     const now = new Date().toISOString();
     
     const result = await this.db!.runAsync(`
-      INSERT INTO reminders (profileId, title, description, type, scheduledFor, createdAt, notificationId)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `, [profileId, title, description, type, scheduledForISO, now, null]);
+      INSERT INTO reminders (user_id, profileId, title, description, type, scheduledFor, createdAt, notificationId)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `, [userId, profileId, title, description, type, scheduledForISO, now, null]);
     
     return result.lastInsertRowId;
   }
 
   async completeReminder(reminderId: number) {
     await this.ensureReady();
+    
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      throw new Error('No authenticated user - cannot complete reminder');
+    }
     
     if (this.isWebFallback) {
       console.log('Web fallback: Complete reminder operation simulated');
@@ -662,12 +769,17 @@ class DatabaseServiceClass {
     
     const now = new Date().toISOString();
     await this.db!.runAsync(`
-      UPDATE reminders SET completed = 1, completedAt = ? WHERE id = ?
-    `, [now, reminderId]);
+      UPDATE reminders SET completed = 1, completedAt = ? WHERE id = ? AND user_id = ?
+    `, [now, reminderId, userId]);
   }
 
   async snoozeReminder(reminderId: number, newDate: string) {
     await this.ensureReady();
+    
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      throw new Error('No authenticated user - cannot snooze reminder');
+    }
     
     if (this.isWebFallback) {
       console.log('Web fallback: Snooze reminder operation simulated');
@@ -678,12 +790,17 @@ class DatabaseServiceClass {
     const newDateISO = new Date(newDate).toISOString();
     
     await this.db!.runAsync(`
-      UPDATE reminders SET scheduledFor = ? WHERE id = ?
-    `, [newDateISO, reminderId]);
+      UPDATE reminders SET scheduledFor = ? WHERE id = ? AND user_id = ?
+    `, [newDateISO, reminderId, userId]);
   }
 
   async updateReminderNotificationId(reminderId: number, notificationId: string | null) {
     await this.ensureReady();
+    
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      return;
+    }
     
     if (this.isWebFallback) {
       console.log('Web fallback: Update notification ID operation simulated');
@@ -691,12 +808,17 @@ class DatabaseServiceClass {
     }
     
     await this.db!.runAsync(`
-      UPDATE reminders SET notificationId = ? WHERE id = ?
-    `, [notificationId, reminderId]);
+      UPDATE reminders SET notificationId = ? WHERE id = ? AND user_id = ?
+    `, [notificationId, reminderId, userId]);
   }
 
   async updateReminder(reminderData: any) {
     await this.ensureReady();
+    
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      throw new Error('No authenticated user - cannot update reminder');
+    }
     
     if (this.isWebFallback) {
       console.log('Web fallback: Update reminder operation simulated');
@@ -714,12 +836,17 @@ class DatabaseServiceClass {
         type = ?, 
         profileId = ?, 
         scheduledFor = ?
-      WHERE id = ?
-    `, [title, description, type, profileId, scheduledForISO, id]);
+      WHERE id = ? AND user_id = ?
+    `, [title, description, type, profileId, scheduledForISO, id, userId]);
   }
 
   async getReminderById(reminderId: number) {
     await this.ensureReady();
+    
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      return null;
+    }
     
     if (this.isWebFallback) {
       const mockReminders = await this.getAllReminders();
@@ -730,8 +857,8 @@ class DatabaseServiceClass {
       SELECT r.*, p.name as profileName, p.photoUri as profilePhoto
       FROM reminders r
       LEFT JOIN profiles p ON r.profileId = p.id
-      WHERE r.id = ?
-    `, [reminderId]);
+      WHERE r.id = ? AND r.user_id = ? AND p.user_id = ?
+    `, [reminderId, userId, userId]);
     
     return result;
   }
@@ -739,37 +866,57 @@ class DatabaseServiceClass {
   async deleteReminder(reminderId: number) {
     await this.ensureReady();
     
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      throw new Error('No authenticated user - cannot delete reminder');
+    }
+    
     if (this.isWebFallback) {
       console.log('Web fallback: Delete reminder operation simulated');
       return;
     }
     
-    await this.db!.runAsync('DELETE FROM reminders WHERE id = ?', [reminderId]);
+    await this.db!.runAsync('DELETE FROM reminders WHERE id = ? AND user_id = ?', [reminderId, userId]);
   }
 
   async deleteProfile(profileId: number) {
     await this.ensureReady();
+    
+    // FIX: Data isolation - ensure only user's own data is deleted
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      throw new Error('No authenticated user - cannot delete profile');
+    }
     
     if (this.isWebFallback) {
       console.log('Web fallback: Delete profile operation simulated');
       return;
     }
     
-    // Delete associated reminders first
-    await this.db!.runAsync('DELETE FROM reminders WHERE profileId = ?', [profileId]);
+    // Delete associated reminders first (only for this user)
+    await this.db!.runAsync('DELETE FROM reminders WHERE profileId = ? AND user_id = ?', [profileId, userId]);
     
-    // Delete associated interactions
-    await this.db!.runAsync('DELETE FROM interactions WHERE profileId = ?', [profileId]);
+    // Delete associated interactions (only for this user)
+    await this.db!.runAsync('DELETE FROM interactions WHERE profileId = ? AND user_id = ?', [profileId, userId]);
     
-    // Delete associated life events
-    await this.db!.runAsync('DELETE FROM life_events WHERE profileId = ?', [profileId]);
+    // Delete associated life events (only for this user)
+    await this.db!.runAsync('DELETE FROM life_events WHERE profileId = ? AND user_id = ?', [profileId, userId]);
     
-    // Finally delete the profile
-    await this.db!.runAsync('DELETE FROM profiles WHERE id = ?', [profileId]);
+    // Delete associated scheduled texts (only for this user)
+    await this.db!.runAsync('DELETE FROM scheduled_texts WHERE profileId = ? AND user_id = ?', [profileId, userId]);
+    
+    // Finally delete the profile (only if it belongs to this user)
+    await this.db!.runAsync('DELETE FROM profiles WHERE id = ? AND user_id = ?', [profileId, userId]);
   }
 
   async createScheduledText(textData: any) {
     await this.ensureReady();
+    
+    // FIX: Data isolation - require user_id for scheduled texts
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      throw new Error('No authenticated user - cannot create scheduled text');
+    }
     
     if (this.isWebFallback) {
       console.log('Web fallback: Scheduled text operation simulated');
@@ -782,15 +929,21 @@ class DatabaseServiceClass {
     const now = new Date().toISOString();
     
     const result = await this.db!.runAsync(`
-      INSERT INTO scheduled_texts (profileId, phoneNumber, message, scheduledFor, createdAt, updatedAt)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `, [profileId, phoneNumber, message, scheduledForISO, now, now]);
+      INSERT INTO scheduled_texts (user_id, profileId, phoneNumber, message, scheduledFor, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, [userId, profileId, phoneNumber, message, scheduledForISO, now, now]);
     
     return result.lastInsertRowId;
   }
 
   async getAllScheduledTexts() {
     await this.ensureReady();
+    
+    // FIX: Data isolation - filter scheduled texts by user_id
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      return [];
+    }
     
     if (this.isWebFallback) {
       return [
@@ -814,8 +967,9 @@ class DatabaseServiceClass {
       SELECT st.*, p.name as profileName, p.photoUri as profilePhoto
       FROM scheduled_texts st
       LEFT JOIN profiles p ON st.profileId = p.id
+      WHERE st.user_id = ? AND p.user_id = ?
       ORDER BY st.scheduledFor ASC
-    `);
+    `, [userId, userId]);
     
     return result.map(text => ({
       ...text,
@@ -826,18 +980,28 @@ class DatabaseServiceClass {
   async updateScheduledTextNotificationId(textId: number, notificationId: string | null) {
     await this.ensureReady();
     
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      return;
+    }
+    
     if (this.isWebFallback) {
       console.log('Web fallback: Update scheduled text notification ID operation simulated');
       return;
     }
     
     await this.db!.runAsync(`
-      UPDATE scheduled_texts SET notificationId = ? WHERE id = ?
-    `, [notificationId, textId]);
+      UPDATE scheduled_texts SET notificationId = ? WHERE id = ? AND user_id = ?
+    `, [notificationId, textId, userId]);
   }
 
   async markScheduledTextAsSent(textId: number) {
     await this.ensureReady();
+    
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      return;
+    }
     
     if (this.isWebFallback) {
       console.log('Web fallback: Mark scheduled text as sent operation simulated');
@@ -846,12 +1010,17 @@ class DatabaseServiceClass {
     
     const now = new Date().toISOString();
     await this.db!.runAsync(`
-      UPDATE scheduled_texts SET sent = 1, updatedAt = ? WHERE id = ?
-    `, [now, textId]);
+      UPDATE scheduled_texts SET sent = 1, updatedAt = ? WHERE id = ? AND user_id = ?
+    `, [now, textId, userId]);
   }
 
   async snoozeScheduledText(textId: number, newDate: string) {
     await this.ensureReady();
+    
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      throw new Error('No authenticated user - cannot snooze scheduled text');
+    }
     
     if (this.isWebFallback) {
       console.log('Web fallback: Snooze scheduled text operation simulated');
@@ -860,23 +1029,33 @@ class DatabaseServiceClass {
     
     const now = new Date().toISOString();
     await this.db!.runAsync(`
-      UPDATE scheduled_texts SET scheduledFor = ?, updatedAt = ? WHERE id = ?
-    `, [newDate, now, textId]);
+      UPDATE scheduled_texts SET scheduledFor = ?, updatedAt = ? WHERE id = ? AND user_id = ?
+    `, [newDate, now, textId, userId]);
   }
 
   async deleteScheduledText(textId: number) {
     await this.ensureReady();
+    
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      throw new Error('No authenticated user - cannot delete scheduled text');
+    }
     
     if (this.isWebFallback) {
       console.log('Web fallback: Delete scheduled text operation simulated');
       return;
     }
     
-    await this.db!.runAsync('DELETE FROM scheduled_texts WHERE id = ?', [textId]);
+    await this.db!.runAsync('DELETE FROM scheduled_texts WHERE id = ? AND user_id = ?', [textId, userId]);
   }
 
   async getScheduledTextById(textId: number) {
     await this.ensureReady();
+    
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      return null;
+    }
     
     if (this.isWebFallback) {
       const mockTexts = await this.getAllScheduledTexts();
@@ -887,8 +1066,8 @@ class DatabaseServiceClass {
       SELECT st.*, p.name as profileName, p.photoUri as profilePhoto
       FROM scheduled_texts st
       LEFT JOIN profiles p ON st.profileId = p.id
-      WHERE st.id = ?
-    `, [textId]);
+      WHERE st.id = ? AND st.user_id = ? AND p.user_id = ?
+    `, [textId, userId, userId]);
     
     return result ? {
       ...result,
@@ -898,6 +1077,11 @@ class DatabaseServiceClass {
 
   async updateScheduledText(textData: any) {
     await this.ensureReady();
+    
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      throw new Error('No authenticated user - cannot update scheduled text');
+    }
     
     if (this.isWebFallback) {
       console.log('Web fallback: Update scheduled text operation simulated');
@@ -915,12 +1099,14 @@ class DatabaseServiceClass {
         message = ?, 
         scheduledFor = ?, 
         updatedAt = ?
-      WHERE id = ?
-    `, [profileId, phoneNumber, message, scheduledForISO, now, id]);
+      WHERE id = ? AND user_id = ?
+    `, [profileId, phoneNumber, message, scheduledForISO, now, id, userId]);
   }
 
   async submitFeedback(feedbackData: any) {
     await this.ensureReady();
+  
+    const userId = await this.getCurrentUserId();
   
     // Try Supabase first
     if (this.supabase) {
@@ -965,9 +1151,9 @@ class DatabaseServiceClass {
     const now = new Date().toISOString();
   
     const result = await this.db!.runAsync(
-      `INSERT INTO feedback (type, subject, message, userEmail, deviceInfo, appVersion, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [type, subject, message, userEmail, deviceInfo, appVersion, now]
+      `INSERT INTO feedback (user_id, type, subject, message, userEmail, deviceInfo, appVersion, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [userId, type, subject, message, userEmail, deviceInfo, appVersion, now]
     );
   
     return result.lastInsertRowId;
@@ -975,6 +1161,8 @@ class DatabaseServiceClass {
 
   async getAllFeedback() {
     await this.ensureReady();
+    
+    const userId = await this.getCurrentUserId();
     
     // Try Supabase first
     if (this.supabase) {
@@ -1025,12 +1213,18 @@ class DatabaseServiceClass {
       ];
     }
     
-    const result = await this.db!.getAllAsync('SELECT * FROM feedback ORDER BY createdAt DESC');
+    if (!userId) {
+      return [];
+    }
+    
+    const result = await this.db!.getAllAsync('SELECT * FROM feedback WHERE user_id = ? ORDER BY createdAt DESC', [userId]);
     return result;
   }
 
   async updateFeedbackStatus(feedbackId: number, status: string) {
     await this.ensureReady();
+    
+    const userId = await this.getCurrentUserId();
     
     // Try Supabase first
     if (this.supabase) {
@@ -1059,13 +1253,22 @@ class DatabaseServiceClass {
       return;
     }
     
+    if (!userId) {
+      return;
+    }
+    
     await this.db!.runAsync(`
-      UPDATE feedback SET status = ? WHERE id = ?
-    `, [status, feedbackId]);
+      UPDATE feedback SET status = ? WHERE id = ? AND user_id = ?
+    `, [status, feedbackId, userId]);
   }
 
   async updateProfileBirthdayTextStatus(profileId: number, enabled: boolean, scheduledTextId: number | null) {
     await this.ensureReady();
+    
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      throw new Error('No authenticated user - cannot update profile birthday text status');
+    }
     
     if (this.isWebFallback) {
       console.log('Web fallback: Update birthday text status operation simulated');
@@ -1073,12 +1276,17 @@ class DatabaseServiceClass {
     }
     
     await this.db!.runAsync(`
-      UPDATE profiles SET birthdayTextEnabled = ?, birthdayTextScheduledTextId = ? WHERE id = ?
-    `, [enabled ? 1 : 0, scheduledTextId, profileId]);
+      UPDATE profiles SET birthdayTextEnabled = ?, birthdayTextScheduledTextId = ? WHERE id = ? AND user_id = ?
+    `, [enabled ? 1 : 0, scheduledTextId, profileId, userId]);
   }
 
   async updateProfileGiftReminderStatus(profileId: number, enabled: boolean, reminderId: number | null) {
     await this.ensureReady();
+    
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      throw new Error('No authenticated user - cannot update profile gift reminder status');
+    }
     
     if (this.isWebFallback) {
       console.log('Web fallback: Update gift reminder status operation simulated');
@@ -1086,20 +1294,25 @@ class DatabaseServiceClass {
     }
     
     await this.db!.runAsync(`
-      UPDATE profiles SET giftReminderEnabled = ?, giftReminderId = ? WHERE id = ?
-    `, [enabled ? 1 : 0, reminderId, profileId]);
+      UPDATE profiles SET giftReminderEnabled = ?, giftReminderId = ? WHERE id = ? AND user_id = ?
+    `, [enabled ? 1 : 0, reminderId, profileId, userId]);
   }
 
   async getScheduledTextByProfileId(profileId: number) {
     await this.ensureReady();
+    
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      return null;
+    }
     
     if (this.isWebFallback) {
       return null;
     }
     
     const result = await this.db!.getFirstAsync(`
-      SELECT * FROM scheduled_texts WHERE profileId = ? ORDER BY createdAt DESC LIMIT 1
-    `, [profileId]);
+      SELECT * FROM scheduled_texts WHERE profileId = ? AND user_id = ? ORDER BY createdAt DESC LIMIT 1
+    `, [profileId, userId]);
     
     return result ? {
       ...result,
@@ -1110,6 +1323,11 @@ class DatabaseServiceClass {
   async getAllProfilesWithBirthdayTextEnabled() {
     await this.ensureReady();
     
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      return [];
+    }
+    
     if (this.isWebFallback) {
       return [];
     }
@@ -1117,12 +1335,22 @@ class DatabaseServiceClass {
     const result = await this.db!.getAllAsync(`
       SELECT p.*, st.scheduledFor, st.sent, st.id as scheduledTextId, st.notificationId
       FROM profiles p
-      LEFT JOIN scheduled_texts st ON p.birthdayTextScheduledTextId = st.id
-      WHERE p.birthdayTextEnabled = 1
-    `);
+      LEFT JOIN scheduled_texts st ON p.birthdayTextScheduledTextId = st.id AND st.user_id = ?
+      WHERE p.birthdayTextEnabled = 1 AND p.user_id = ?
+    `, [userId, userId]);
     
     return result.map(row => ({
       ...row,
+      tags: row.tags ? JSON.parse(row.tags) : [],
+      parents: row.parents ? JSON.parse(row.parents) : [],
+      kids: row.kids ? JSON.parse(row.kids) : [],
+      brothers: row.brothers ? JSON.parse(row.brothers) : [],
+      sisters: row.sisters ? JSON.parse(row.sisters) : [],
+      siblings: row.siblings ? JSON.parse(row.siblings) : [],
+      pets: row.pets ? JSON.parse(row.pets) : [],
+      foodLikes: row.foodLikes ? JSON.parse(row.foodLikes) : [],
+      foodDislikes: row.foodDislikes ? JSON.parse(row.foodDislikes) : [],
+      interests: row.interests ? JSON.parse(row.interests) : [],
       birthdayTextEnabled: Boolean(row.birthdayTextEnabled),
       sent: Boolean(row.sent),
     }));
@@ -1131,6 +1359,11 @@ class DatabaseServiceClass {
   async getAllProfilesWithGiftReminderEnabled() {
     await this.ensureReady();
     
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      return [];
+    }
+    
     if (this.isWebFallback) {
       return [];
     }
@@ -1138,12 +1371,22 @@ class DatabaseServiceClass {
     const result = await this.db!.getAllAsync(`
       SELECT p.*, r.scheduledFor, r.completed, r.id as reminderId, r.notificationId
       FROM profiles p
-      LEFT JOIN reminders r ON p.giftReminderId = r.id
-      WHERE p.giftReminderEnabled = 1
-    `);
+      LEFT JOIN reminders r ON p.giftReminderId = r.id AND r.user_id = ?
+      WHERE p.giftReminderEnabled = 1 AND p.user_id = ?
+    `, [userId, userId]);
     
     return result.map(row => ({
       ...row,
+      tags: row.tags ? JSON.parse(row.tags) : [],
+      parents: row.parents ? JSON.parse(row.parents) : [],
+      kids: row.kids ? JSON.parse(row.kids) : [],
+      brothers: row.brothers ? JSON.parse(row.brothers) : [],
+      sisters: row.sisters ? JSON.parse(row.sisters) : [],
+      siblings: row.siblings ? JSON.parse(row.siblings) : [],
+      pets: row.pets ? JSON.parse(row.pets) : [],
+      foodLikes: row.foodLikes ? JSON.parse(row.foodLikes) : [],
+      foodDislikes: row.foodDislikes ? JSON.parse(row.foodDislikes) : [],
+      interests: row.interests ? JSON.parse(row.interests) : [],
       giftReminderEnabled: Boolean(row.giftReminderEnabled),
       completed: Boolean(row.completed),
     }));
@@ -1152,6 +1395,11 @@ class DatabaseServiceClass {
   async updateProfileListType(profileId: number, listType: string) {
     await this.ensureReady();
     
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      throw new Error('No authenticated user - cannot update profile list type');
+    }
+    
     if (this.isWebFallback) {
       console.log('Web fallback: Update profile list type operation simulated');
       return;
@@ -1159,12 +1407,17 @@ class DatabaseServiceClass {
     
     const now = new Date().toISOString();
     await this.db!.runAsync(`
-      UPDATE profiles SET listType = ?, updatedAt = ? WHERE id = ?
-    `, [listType, now, profileId]);
+      UPDATE profiles SET listType = ?, updatedAt = ? WHERE id = ? AND user_id = ?
+    `, [listType, now, profileId, userId]);
   }
 
   async getProfilesByName(name: string) {
     await this.ensureReady();
+    
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      return [];
+    }
     
     if (this.isWebFallback) {
       const mockProfiles = await this.getAllProfiles();
@@ -1174,8 +1427,8 @@ class DatabaseServiceClass {
     }
     
     const result = await this.db!.getAllAsync(
-      'SELECT * FROM profiles WHERE name LIKE ? ORDER BY name ASC',
-      [`%${name}%`]
+      'SELECT * FROM profiles WHERE name LIKE ? AND user_id = ? ORDER BY name ASC',
+      [`%${name}%`, userId]
     );
     
     return result.map(profile => ({
@@ -1196,6 +1449,12 @@ class DatabaseServiceClass {
   async addLifeEvent(eventData: any) {
     await this.ensureReady();
     
+    // FIX: Data isolation - require user_id for life events
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      throw new Error('No authenticated user - cannot add life event');
+    }
+    
     if (this.isWebFallback) {
       console.log('Web fallback: Life event operation simulated');
       return Math.floor(Math.random() * 1000) + 1;
@@ -1205,9 +1464,9 @@ class DatabaseServiceClass {
     const now = new Date().toISOString();
     
     const result = await this.db!.runAsync(`
-      INSERT INTO life_events (profileId, eventType, description, eventDate, importance, createdAt)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `, [profileId, eventType, description, eventDate, importance, now]);
+      INSERT INTO life_events (user_id, profileId, eventType, description, eventDate, importance, createdAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, [userId, profileId, eventType, description, eventDate, importance, now]);
     
     return result.lastInsertRowId;
   }
@@ -1215,20 +1474,23 @@ class DatabaseServiceClass {
   async clearAllData() {
     await this.ensureReady();
     
+    // FIX: Data isolation - only clear data for current user
+    const userId = await this.getCurrentUserId();
+    if (!userId) {
+      throw new Error('No authenticated user - cannot clear data');
+    }
+    
     if (this.isWebFallback) {
       console.log('Web fallback: Clear data operation simulated');
       return;
     }
     
-    await this.db!.execAsync(`
-      DROP TABLE IF EXISTS life_events;
-      DROP TABLE IF EXISTS reminders;
-      DROP TABLE IF EXISTS interactions;
-      DROP TABLE IF EXISTS profiles;
-    `);
-    
-    // Recreate tables with the latest schema
-    await this.createTables();
+    // Only clear data for the current user
+    await this.db!.runAsync('DELETE FROM life_events WHERE user_id = ?', [userId]);
+    await this.db!.runAsync('DELETE FROM reminders WHERE user_id = ?', [userId]);
+    await this.db!.runAsync('DELETE FROM interactions WHERE user_id = ?', [userId]);
+    await this.db!.runAsync('DELETE FROM scheduled_texts WHERE user_id = ?', [userId]);
+    await this.db!.runAsync('DELETE FROM profiles WHERE user_id = ?', [userId]);
   }
 }
 
